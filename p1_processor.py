@@ -16,7 +16,7 @@ from typing import List
 
 import pandas as pd
 
-import extract_utils as eu  # existing helper module
+import excel_utils as eu  # renamed helper module
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +165,12 @@ def process_p1_sheet(etl, data: pd.DataFrame, survey_id: str) -> List[int]:
                         data_start_idx += 1
                         continue
 
-                    option_text = str(option_main_val).strip() if option_main_val else "(blank)"
+                    # Normalise option text – handle blanks / NaNs
+                    text_raw = "" if option_main_val is None else str(option_main_val).strip()
+                    if text_raw.lower() in {"", "nan", "none"}:
+                        option_text = "(blank)"
+                    else:
+                        option_text = text_raw
                     option_id   = etl.insert_answer_option(question_id, option_text, option_order)
 
                     for col_name, (_, _, excel_col) in demo_mapping.items():
@@ -192,12 +197,37 @@ def process_p1_sheet(etl, data: pd.DataFrame, survey_id: str) -> List[int]:
             # ------------- Demographic questions (QD) --------------------------
             else:
                 demo_id = etl.insert_demographic(question_number, clean_question_text)
-                for col_name, (_, _, excel_col) in demo_mapping.items():
-                    count = data.iloc[row_index + 1].get(excel_col, 0)
-                    percent = count  # placeholder – percent not available in these sheets
-                    etl.insert_demographic_response(
-                        question_id, survey_id, demo_id, col_name, count, percent
+
+                data_idx = row_index + 1
+                while data_idx < len(data):
+                    series = data.iloc[data_idx]
+                    main_val_ = get_cell_value(series.to_dict(), main_col)
+
+                    if is_new_block(main_val_) and data_idx != row_index + 1:
+                        break
+
+                    numeric_found = any(
+                        pd.notna(pd.to_numeric(series.get(col), errors='coerce'))
+                        for col in demo_excel_cols
                     )
+                    if not numeric_found:
+                        data_idx += 1
+                        continue
+
+                    item_label_raw = "" if main_val_ is None else str(main_val_).strip()
+                    item_label = item_label_raw if item_label_raw else "(blank)"
+
+                    for col_name, (_, _, excel_col) in demo_mapping.items():
+                        cnt_val = series.get(excel_col)
+                        if pd.isna(pd.to_numeric(cnt_val, errors='coerce')):
+                            continue
+                        etl.insert_demographic_response(
+                            question_id, survey_id, demo_id, item_label, cnt_val, None
+                        )
+
+                    data_idx += 1
+
+                row_index = data_idx - 1
 
         # ------- QD row outside of Table context --------------------------------
         elif isinstance(main_value, str) and main_value.startswith('QD'):
@@ -210,11 +240,37 @@ def process_p1_sheet(etl, data: pd.DataFrame, survey_id: str) -> List[int]:
                     survey_id, question_number, 1, clean_q, True, None
                 )
                 demo_id = etl.insert_demographic(question_number, clean_q)
-                for col_name, (_, _, excel_col) in demo_mapping.items():
-                    count = row_values.get(excel_col, 0)
-                    etl.insert_demographic_response(
-                        question_id, survey_id, demo_id, col_name, count, None
+
+                data_idx = row_index + 1
+                while data_idx < len(data):
+                    series = data.iloc[data_idx]
+                    main_val_ = get_cell_value(series.to_dict(), main_col)
+
+                    if is_new_block(main_val_) and data_idx != row_index + 1:
+                        break
+
+                    numeric_found = any(
+                        pd.notna(pd.to_numeric(series.get(col), errors='coerce'))
+                        for col in demo_excel_cols
                     )
+                    if not numeric_found:
+                        data_idx += 1
+                        continue
+
+                    item_label_raw = "" if main_val_ is None else str(main_val_).strip()
+                    item_label = item_label_raw if item_label_raw else "(blank)"
+
+                    for col_name, (_, _, excel_col) in demo_mapping.items():
+                        cnt_val = series.get(excel_col)
+                        if pd.isna(pd.to_numeric(cnt_val, errors='coerce')):
+                            continue
+                        etl.insert_demographic_response(
+                            question_id, survey_id, demo_id, item_label, cnt_val, None
+                        )
+
+                    data_idx += 1
+
+                row_index = data_idx - 1
 
         row_index += 1
 

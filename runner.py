@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Entry-point for the AA Poll ETL.
 
-Reads every Excel file in ./excel_files/, preprocesses it (via extract_utils)
+Reads every Excel file in ./excel_files/, preprocesses it (via excel_utils)
 and then passes the normalised P1 sheet to p1_processor.process_p1_sheet.
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ import sys
 
 import pandas as pd
 
-import extract_utils as eu
+import excel_utils as eu
 from dao import AAPollDAO
 from db_config import DB_CONFIG
 from p1_processor import process_p1_sheet
