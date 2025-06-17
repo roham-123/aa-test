@@ -35,6 +35,11 @@ def process_p1_sheet(etl, data: pd.DataFrame, survey_id: str) -> List[int]:
     current_base = None
     question_id = None
 
+    # Track if the stem of a question (part=1) has already been written for this survey
+    seen_main_questions: dict[str, int] = {}
+    # Track the current max part number for each question number so we can continue counting across tables
+    part_counters: dict[str, int] = {}
+
     extracted_questions: List[int] = []
 
     main_col = 'Return to Index'
@@ -117,12 +122,16 @@ def process_p1_sheet(etl, data: pd.DataFrame, survey_id: str) -> List[int]:
                             clean_question_text = prev_text.strip() + " " + clean_question_text
                             break
 
-            # determine part number
-            if question_number == current_question:
-                current_question_part += 1
-            else:
+            # If we've already inserted the stem (part 1) for this question_number in this survey,
+            # we should NOT insert it again – subsequent tables will only add variants.
+            is_new_question_number = question_number not in seen_main_questions
+
+            if is_new_question_number:
                 current_question = question_number
                 current_question_part = 1
+            else:
+                current_question = question_number
+                current_question_part = part_counters[question_number]
 
             # locate Base description (within next 3 rows)
             base_description = None
@@ -133,66 +142,122 @@ def process_p1_sheet(etl, data: pd.DataFrame, survey_id: str) -> List[int]:
                     current_base = base_text
                     break
 
-            # insert question – returns question_id
-            question_id = etl.insert_question(
-                survey_id,
-                question_number,
-                current_question_part,
-                clean_question_text,
-                is_demographic,
-                current_base or base_description,
-            )
+            if is_new_question_number:
+                # Insert the stem only once per survey
+                question_id = etl.insert_question(
+                    survey_id,
+                    question_number,
+                    1,
+                    clean_question_text,
+                    is_demographic,
+                    current_base or base_description,
+                )
+                extracted_questions.append(question_id)
 
-            extracted_questions.append(question_id)
+                seen_main_questions[question_number] = question_id
+                part_counters[question_number] = 1
+            else:
+                # Do not reinsert; just reuse existing stem id
+                question_id = seen_main_questions[question_number]
 
             # ------------- Non-demographic questions → option rows -------------
             if not is_demographic:
-                data_start_idx = row_index + 2  # skip question row + base row
+                data_start_idx = row_index + 2  # skip question row + possible base row
                 option_order = 1
+
+                # active_question_id is the question (core or variant) we are currently populating
+                active_question_id = question_id
+
                 while data_start_idx < len(data):
                     option_row_series = data.iloc[data_start_idx]
                     option_main_val   = get_cell_value(option_row_series.to_dict(), main_col)
 
+                    # When we encounter another Q/Table row -> break out to outer loop
                     if is_new_block(option_main_val) and option_order > 1:
-                        break  # reached the next question / table
+                        break
 
-                    # ensure at least one numeric value exists in any demo column
+                    # Determine if the row is a bullet/variant header
+                    text_val = "" if option_main_val is None else str(option_main_val).strip()
+                    is_bullet = text_val.startswith('-')
+
+                    # Does this row have at least one numeric cell?
                     numeric_found = any(
                         pd.notna(pd.to_numeric(option_row_series.get(col), errors='coerce'))
                         for col in demo_excel_cols
                     )
-                    if not numeric_found:
-                        data_start_idx += 1
-                        continue
 
-                    # Normalise option text – handle blanks / NaNs
-                    text_raw = "" if option_main_val is None else str(option_main_val).strip()
-                    if text_raw.lower() in {"", "nan", "none"}:
-                        option_text = "(blank)"
-                    else:
-                        option_text = text_raw
-                    option_id   = etl.insert_answer_option(question_id, option_text, option_order)
+                    # ------------------- handle bullet rows --------------------------------
+                    if is_bullet:
+                        bullet_label = text_val.lstrip('-').strip()
 
-                    for col_name, (_, _, excel_col) in demo_mapping.items():
-                        count_value = option_row_series.get(excel_col)
-                        if pd.isna(pd.to_numeric(count_value, errors='coerce')):
-                            continue
+                        # Skip "- Summary" rows entirely (no question, no responses)
+                        if bullet_label.lower().startswith('summary'):
+                            data_start_idx += 1
+                            continue  # move to next row without inserting anything
 
-                        demo_code = _infer_demo_code(col_name)
-                        demo_id   = etl.insert_demographic(demo_code, demo_code) if demo_code else None
+                        # create new variant question (increment part)
+                        current_question_part = part_counters.get(current_question, 1) + 1
+                        part_counters[current_question] = current_question_part
 
-                        etl.insert_p1_fact(
-                            question_id,
+                        active_question_id = etl.insert_question(
                             survey_id,
-                            option_id,
-                            demo_id,
-                            col_name,
-                            count_value,
-                            None,
+                            current_question,
+                            current_question_part,
+                            bullet_label,
+                            False,
+                            current_base,
                         )
+                        extracted_questions.append(active_question_id)
 
-                    option_order += 1
+                        # reset option ordering for this variant
+                        option_order = 1
+
+                        # proceed to treat *this same row* as numeric row if numbers are present
+
+                    # ------------------------------------------------------------------
+                    # Rows with numeric values → treat as answer options for *active_question_id*
+                    # ------------------------------------------------------------------
+                    if numeric_found:
+                        # Normalise option text – handle blanks / NaNs
+                        if is_bullet:
+                            # bullet rows themselves are not answer options; treat label as "(overall)"
+                            option_text = "(overall)"
+                        else:
+                            if text_val.lower() in {"", "nan", "none"}:
+                                option_text = "(blank)"
+                            else:
+                                option_text = text_val
+
+                        option_id = etl.insert_answer_option(active_question_id, option_text, option_order)
+
+                        for col_name, (_, _, excel_col) in demo_mapping.items():
+                            count_value = option_row_series.get(excel_col)
+                            if pd.isna(pd.to_numeric(count_value, errors='coerce')):
+                                continue
+
+                            demo_code = _infer_demo_code(col_name)
+                            demo_id   = etl.insert_demographic(demo_code, demo_code) if demo_code else None
+
+                            etl.insert_p1_fact(
+                                active_question_id,
+                                survey_id,
+                                option_id,
+                                demo_id,
+                                col_name,
+                                count_value,
+                                None,
+                            )
+
+                        option_order += 1
+
+                        data_start_idx += 1
+                        continue  # finished numeric processing for this row
+
+                    # ------------------------------------------------------------------
+                    # Non-numeric & non-bullet rows → skip
+                    # ------------------------------------------------------------------
                     data_start_idx += 1
+                    continue
 
             # ------------- Demographic questions (QD) --------------------------
             else:
