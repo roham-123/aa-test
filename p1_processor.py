@@ -39,6 +39,10 @@ def process_p1_sheet(etl, data: pd.DataFrame, survey_id: str) -> List[int]:
     seen_main_questions: dict[str, int] = {}
     # Track the current max part number for each question number so we can continue counting across tables
     part_counters: dict[str, int] = {}
+    # For every question_number keep a mapping bullet_label -> question_id so
+    # we do not insert the same variant multiple times when the workbook
+    # repeats the bullet header in auxiliary summary tables (e.g. NET rows).
+    seen_variants: dict[str, dict[str, int]] = {}
 
     extracted_questions: List[int] = []
 
@@ -195,22 +199,35 @@ def process_p1_sheet(etl, data: pd.DataFrame, survey_id: str) -> List[int]:
                             data_start_idx += 1
                             continue  # move to next row without inserting anything
 
-                        # create new variant question (increment part)
-                        current_question_part = part_counters.get(current_question, 1) + 1
-                        part_counters[current_question] = current_question_part
+                        # Have we already created this variant earlier in
+                        # this survey for the same question?  If so, re-use
+                        # the existing question_id instead of inserting a
+                        # duplicate.
+                        variant_map = seen_variants.setdefault(current_question, {})
 
-                        active_question_id = etl.insert_question(
-                            survey_id,
-                            current_question,
-                            current_question_part,
-                            bullet_label,
-                            False,
-                            current_base,
-                        )
-                        extracted_questions.append(active_question_id)
+                        if bullet_label in variant_map:
+                            active_question_id = variant_map[bullet_label]
+                            # do NOT reset option order – we want new answer
+                            # options appended after the existing ones
+                        else:
+                            # create new variant question (increment part)
+                            current_question_part = part_counters.get(current_question, 1) + 1
+                            part_counters[current_question] = current_question_part
 
-                        # reset option ordering for this variant
-                        option_order = 1
+                            active_question_id = etl.insert_question(
+                                survey_id,
+                                current_question,
+                                current_question_part,
+                                bullet_label,
+                                False,
+                                current_base,
+                            )
+                            extracted_questions.append(active_question_id)
+
+                            variant_map[bullet_label] = active_question_id
+
+                            # reset option ordering for this brand-new variant
+                            option_order = 1
 
                         # proceed to treat *this same row* as numeric row if numbers are present
 
