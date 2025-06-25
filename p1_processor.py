@@ -1,11 +1,11 @@
 """P-1 sheet extraction logic extracted from etl_script.py to keep the core ETL small.
 
-The public entry-point is `process_p1_sheet(etl, data, survey_id)` where:
-    etl  – instance of AAPollETL (provides DAO methods such as insert_question, insert_p1_fact …)
+The public entry-point is `process_p1_sheet(dao, data, survey_id)` where:
+    dao  – instance of AAPollDAO (provides DAO methods such as insert_question, insert_p1_fact …)
     data – pandas.DataFrame of the P1 sheet (already read by the caller)
     survey_id – AA-MMYYYY identifier
 
-This file contains **no** direct DB calls; it delegates everything via the passed-in `etl` object, so it can
+This file contains **no** direct DB calls; it delegates everything via the passed-in `dao` object, so it can
 be unit-tested with a mock.
 """
 from __future__ import annotations
@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 # public API
 # ----------------------------------------------------------------------
 
-def process_p1_sheet(etl, data: pd.DataFrame, survey_id: str) -> List[int]:
-    """Parse the normalised P1 sheet and write rows via *etl* DAO methods.
+def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
+    """Parse the normalised P1 sheet and write rows via *dao* DAO methods.
 
     Returns a list of question_ids that were successfully extracted (useful for stats / validation).
     """
@@ -148,7 +148,7 @@ def process_p1_sheet(etl, data: pd.DataFrame, survey_id: str) -> List[int]:
 
             if is_new_question_number:
                 # Insert the stem only once per survey
-                question_id = etl.insert_question(
+                question_id = dao.insert_question(
                     survey_id,
                     question_number,
                     1,
@@ -214,7 +214,7 @@ def process_p1_sheet(etl, data: pd.DataFrame, survey_id: str) -> List[int]:
                             current_question_part = part_counters.get(current_question, 1) + 1
                             part_counters[current_question] = current_question_part
 
-                            active_question_id = etl.insert_question(
+                            active_question_id = dao.insert_question(
                                 survey_id,
                                 current_question,
                                 current_question_part,
@@ -245,7 +245,7 @@ def process_p1_sheet(etl, data: pd.DataFrame, survey_id: str) -> List[int]:
                             else:
                                 option_text = text_val
 
-                        option_id = etl.insert_answer_option(active_question_id, option_text, option_order)
+                        option_id = dao.insert_answer_option(active_question_id, option_text, option_order)
 
                         for col_name, (_, _, excel_col) in demo_mapping.items():
                             count_value = option_row_series.get(excel_col)
@@ -253,9 +253,9 @@ def process_p1_sheet(etl, data: pd.DataFrame, survey_id: str) -> List[int]:
                                 continue
 
                             demo_code = _infer_demo_code(col_name)
-                            demo_id   = etl.insert_demographic(demo_code, demo_code) if demo_code else None
+                            demo_id   = dao.insert_demographic(demo_code, demo_code) if demo_code else None
 
-                            etl.insert_p1_fact(
+                            dao.insert_p1_fact(
                                 active_question_id,
                                 survey_id,
                                 option_id,
@@ -278,7 +278,7 @@ def process_p1_sheet(etl, data: pd.DataFrame, survey_id: str) -> List[int]:
 
             # ------------- Demographic questions (QD) --------------------------
             else:
-                demo_id = etl.insert_demographic(question_number, clean_question_text)
+                demo_id = dao.insert_demographic(question_number, clean_question_text)
 
                 data_idx = row_index + 1
                 while data_idx < len(data):
@@ -303,7 +303,7 @@ def process_p1_sheet(etl, data: pd.DataFrame, survey_id: str) -> List[int]:
                         cnt_val = series.get(excel_col)
                         if pd.isna(pd.to_numeric(cnt_val, errors='coerce')):
                             continue
-                        etl.insert_demographic_response(
+                        dao.insert_demographic_response(
                             question_id, survey_id, demo_id, item_label, cnt_val, None
                         )
 
@@ -318,10 +318,10 @@ def process_p1_sheet(etl, data: pd.DataFrame, survey_id: str) -> List[int]:
             qd_match = re.match(r'^QD(\d+)', clean_q)
             if qd_match:
                 question_number = f"QD{qd_match.group(1)}"
-                question_id = etl.insert_question(
+                question_id = dao.insert_question(
                     survey_id, question_number, 1, clean_q, True, None
                 )
-                demo_id = etl.insert_demographic(question_number, clean_q)
+                demo_id = dao.insert_demographic(question_number, clean_q)
 
                 data_idx = row_index + 1
                 while data_idx < len(data):
@@ -346,7 +346,7 @@ def process_p1_sheet(etl, data: pd.DataFrame, survey_id: str) -> List[int]:
                         cnt_val = series.get(excel_col)
                         if pd.isna(pd.to_numeric(cnt_val, errors='coerce')):
                             continue
-                        etl.insert_demographic_response(
+                        dao.insert_demographic_response(
                             question_id, survey_id, demo_id, item_label, cnt_val, None
                         )
 
