@@ -14,7 +14,7 @@ pip_install pandas
 pip_install mysql-connector-python
 pip_install openpyxl
 
-echo "Running ETL script..."
-python3 etl_script.py
+echo "Running ETL pipeline..."
+python3 runner.py
 
 echo "ETL process completed. Check etl_log.log for details." 

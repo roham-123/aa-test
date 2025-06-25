@@ -8,9 +8,6 @@ from __future__ import annotations
 
 import logging
 import math
-import os
-import re
-from datetime import datetime
 
 import mysql.connector
 import pandas as pd  # only needed for type hints in a couple of helpers
