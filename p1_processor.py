@@ -101,8 +101,27 @@ def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
 
             clean_question_text = question_text_raw.strip()
 
-            q_match  = re.match(r'^Q(\d+)([a-d])?\.?', clean_question_text)
-            qd_match = re.match(r'^QD(\d+)\.?', clean_question_text)
+            # Try to extract Q/QD number with more robust regex patterns
+            # Handle cases like "Q1.", "Q15", "QD1", "QD2 Are you...?", etc.
+            q_match = re.search(r'\bQ(\d+)([a-d])?\.?\s', clean_question_text + ' ')
+            qd_match = re.search(r'\bQD(\d+)\.?\s', clean_question_text + ' ')
+            
+            # If no match found in current text, try lookback concatenation first
+            if not q_match and not qd_match:
+                # concatenate with preceding rows if the current row lacks Q/QD prefix
+                enhanced_text = clean_question_text
+                for lookback in range(1, 10):
+                    if row_index - lookback < 0:
+                        break
+                    prev_text = get_cell_value(data.iloc[row_index - lookback], main_col)
+                    if isinstance(prev_text, str) and (prev_text.startswith('Q') or prev_text.startswith('QD')):
+                        if len(prev_text) < 150:
+                            enhanced_text = prev_text.strip() + " " + clean_question_text
+                            clean_question_text = enhanced_text
+                            # Try regex again on enhanced text
+                            q_match = re.search(r'\bQ(\d+)([a-d])?\.?\s', enhanced_text + ' ')
+                            qd_match = re.search(r'\bQD(\d+)\.?\s', enhanced_text + ' ')
+                            break
 
             if q_match:
                 question_number = f"Q{q_match.group(1)}"
@@ -111,20 +130,10 @@ def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
                 question_number = f"QD{qd_match.group(1)}"
                 is_demographic = True
             else:
-                table_num = re.search(r'Table (\d+)', current_table)
-                question_number = f"T{table_num.group(1)}" if table_num else "Unknown"
-                is_demographic = False
-
-            # concatenate with preceding prefix if the current row lacks Q/QD prefix
-            if not (clean_question_text.startswith('Q') or clean_question_text.startswith('QD')):
-                for lookback in range(1, 10):
-                    if row_index - lookback < 0:
-                        break
-                    prev_text = get_cell_value(data.iloc[row_index - lookback], main_col)
-                    if isinstance(prev_text, str) and (prev_text.startswith('Q') or prev_text.startswith('QD')):
-                        if len(prev_text) < 150:
-                            clean_question_text = prev_text.strip() + " " + clean_question_text
-                            break
+                # Skip this table entirely if we can't identify the question
+                logger.warning(f"Could not identify question number in table '{current_table}' with text: '{clean_question_text[:100]}...'")
+                row_index += 1
+                continue
 
             # If we've already inserted the stem (part 1) for this question_number in this survey,
             # we should NOT insert it again – subsequent tables will only add variants.
@@ -240,8 +249,10 @@ def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
                             # bullet rows themselves are not answer options; treat label as "(overall)"
                             option_text = "(overall)"
                         else:
-                            if text_val.lower() in {"", "nan", "none"}:
-                                option_text = "(blank)"
+                            # Skip rows that are just whitespace (Excel formatting rows)
+                            if text_val.lower() in {"", "nan", "none"} or text_val.strip() == "":
+                                data_start_idx += 1
+                                continue  # Skip this row entirely - it's just Excel formatting
                             else:
                                 option_text = text_val
 
