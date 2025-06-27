@@ -1,8 +1,7 @@
-"""Utility functions for Excel ETL preprocessing and column detection.
+"""This file has functions that preprocess the excel files and create a normalised version.
 
-This module provides functions to:
 1. Detect demographic column mappings automatically
-2. Provide fallback static mappings
+2. Provide fallback default mappings
 3. Preprocess Excel files for normalization
 """
 from __future__ import annotations
@@ -14,10 +13,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # Column mapping detection
-# ---------------------------------------------------------------------------
-
 COMMON_DEMOS = {
     "total": ("total_count", "total_percent"),
     "male": ("male_count", "male_percent"),
@@ -32,17 +28,10 @@ COMMON_DEMOS = {
 
 
 def detect_column_mapping(df: pd.DataFrame, max_scan_rows: int = 20) -> Dict[str, Tuple[str, str, str]]:
-    """Attempt to infer which dataframe columns correspond to each demographic.
-
-    The Excel files usually contain a header row where the demographic names
-    (Total, Male, etc.) appear. We scan the first *max_scan_rows* looking for a
-    row that includes *Total*.  Once found we treat that entire row as the demo
-    header and map the cell text -> column label.
-
-    Returns a mapping compatible with the existing ETL logic:
+    """
+    Returns a dict such as:
         {'Total': ('total_count', 'total_percent', '<dataframe_column_name>'), ...}
-    If detection fails we return an empty dict and the caller can fall back to
-    the static mapping.
+    If detection fails we return an empty dict and fall back to the default mapping.
     """
     header_row_idx = None
     for i in range(min(max_scan_rows, len(df))):
@@ -63,9 +52,7 @@ def detect_column_mapping(df: pd.DataFrame, max_scan_rows: int = 20) -> Dict[str
             continue
         key = str(val).strip()
         lowered = key.lower()
-        # Normalise some variations (e.g. 'male', 'men')
-        if lowered in ("men",):
-            lowered = "male"
+
         if lowered in COMMON_DEMOS:
             count_col_name, percent_col_name = COMMON_DEMOS[lowered]
             demo_mapping[key] = (count_col_name, percent_col_name, col)
@@ -75,13 +62,7 @@ def detect_column_mapping(df: pd.DataFrame, max_scan_rows: int = 20) -> Dict[str
 
 
 def default_column_mapping() -> Dict[str, Tuple[str, str, str]]:
-    """Static fallback demographic column mapping used when auto-detection fails.
 
-    Returned dict keys are the demographic labels as they appear in the sheets;
-    the tuple contains (count_column_name, percent_column_name, excel_column).
-    The *excel_column* values refer to the raw column labels in the original
-    DataFrame (typically 'Unnamed: N').
-    """
     return {
         'Total': ('total_count', 'total_percent', 'Unnamed: 2'),
         'Male': ('male_count', 'male_percent', 'Unnamed: 3'),
@@ -111,11 +92,11 @@ def default_column_mapping() -> Dict[str, Tuple[str, str, str]]:
     }
 
 
-# ---------------------------------------------------------------------------
-# Excel preprocessing and normalization
-# ---------------------------------------------------------------------------
+# 
+# Excel preprocessing and normalisation
+# 
 
-def _normalize_column_headers(df: pd.DataFrame) -> pd.DataFrame:
+def _normalise_column_headers(df: pd.DataFrame) -> pd.DataFrame:
     """Ensure column labels are unique strings (no duplicates)."""
     new_cols = []
     for i, col in enumerate(df.columns):
@@ -134,7 +115,7 @@ def _remove_empty_rows_columns(df: pd.DataFrame) -> pd.DataFrame:
 def preprocess_excel(filepath: str) -> str:
     """Load *filepath*, clean obvious structural issues, save *_normalized.xlsx*.
 
-    If preprocessing fails for any reason we simply return the original path.
+    If preprocessing fails for any reason we return the original path.
     """
     try:
         df = pd.read_excel(filepath, sheet_name="P1")
@@ -142,15 +123,15 @@ def preprocess_excel(filepath: str) -> str:
         logger.warning(f"Pre-processing skipped – could not read file: {exc}")
         return filepath
 
-    df = _normalize_column_headers(df)
+    df = _normalise_column_headers(df)
     df = _remove_empty_rows_columns(df)
 
-    normalized_path = filepath.replace(".xlsx", "_normalized.xlsx")
+    normalised_path = filepath.replace(".xlsx", "_normalized.xlsx")
     try:
-        with pd.ExcelWriter(normalized_path, engine="openpyxl") as writer:
+        with pd.ExcelWriter(normalised_path, engine="openpyxl") as writer:
             df.to_excel(writer, index=False, sheet_name="P1")
-        logger.info(f"Saved normalised Excel to {normalized_path}")
-        return normalized_path
+        logger.info(f"Saved normalised Excel to {normalised_path}")
+        return normalised_path
     except Exception as exc:
         logger.warning(f"Could not save normalised Excel: {exc}")
         return filepath 
