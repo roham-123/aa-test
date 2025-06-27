@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-"""Entry-point for the AA Poll ETL.
-
-Reads every Excel file in ./excel_files/, preprocesses it (via excel_utils)
-and then passes the normalised P1 sheet to p1_processor.process_p1_sheet.
-"""
 from __future__ import annotations
 
 import logging
@@ -25,9 +19,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("runner")
 
-# ----------------------------------------------------------------------
 # helpers
-# ----------------------------------------------------------------------
+# 
 MONTH_MAP = {
     "Jan": 1,
     "Feb": 2,
@@ -56,10 +49,6 @@ def extract_survey_metadata(filename: str):
     survey_id = f"AA-{month:02d}{year}"
     return survey_id, month, year
 
-
-# ----------------------------------------------------------------------
-# main
-# ----------------------------------------------------------------------
 
 def main():
     data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "excel_files")
