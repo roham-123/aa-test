@@ -57,31 +57,46 @@ def main():
     try:
         dao.connect()
 
-        for filename in os.listdir(data_dir):
-            if "_normalized" in filename:
-                continue  # skip generated files
-            if not FILENAME_RE.match(filename):
+        # Iterate through year directories
+        for year_dir in sorted(os.listdir(data_dir)):
+            year_path = os.path.join(data_dir, year_dir)
+            
+            # Skip if not a directory or if it's a hidden file
+            if not os.path.isdir(year_path) or year_dir.startswith('.'):
                 continue
-
-            if dao.is_file_processed(filename):
-                logger.info("Skipping already-processed file %s", filename)
+                
+            # Skip if the directory name doesn't look like a year (4 digits)
+            if not re.match(r'^\d{4}$', year_dir):
                 continue
+                
+            logger.info("Processing year directory: %s", year_dir)
+            
+            # Process files in this year directory
+            for filename in os.listdir(year_path):
+                if "_normalized" in filename:
+                    continue  # skip generated files
+                if not FILENAME_RE.match(filename):
+                    continue
 
-            filepath = os.path.join(data_dir, filename)
-            logger.info("Processing %s", filepath)
+                if dao.is_file_processed(filename):
+                    logger.info("Skipping already-processed file %s", filename)
+                    continue
 
-            survey_id, month, year = extract_survey_metadata(filename)
-            dao.insert_survey(survey_id, month, year, filename)
+                filepath = os.path.join(year_path, filename)
+                logger.info("Processing %s", filepath)
 
-            # preprocess and read sheet
-            normalised = eu.preprocess_excel(filepath)
-            p1_df = pd.read_excel(normalised, sheet_name="P1")
+                survey_id, month, year = extract_survey_metadata(filename)
+                dao.insert_survey(survey_id, month, year, filename)
 
-            # run processor
-            process_p1_sheet(dao, p1_df, survey_id)
+                # preprocess and read sheet
+                normalised = eu.preprocess_excel(filepath)
+                p1_df = pd.read_excel(normalised, sheet_name="P1")
 
-            dao.mark_file_processed(filename)
-            logger.info("Finished %s", filename)
+                # run processor
+                process_p1_sheet(dao, p1_df, survey_id)
+
+                dao.mark_file_processed(filename)
+                logger.info("Finished %s", filename)
 
     finally:
         dao.close()
