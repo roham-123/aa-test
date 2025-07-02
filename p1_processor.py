@@ -1,12 +1,5 @@
-"""P-1 sheet extraction logic extracted from etl_script.py to keep the core ETL small.
-
-The public entry-point is `process_p1_sheet(dao, data, survey_id)` where:
-    dao  – instance of AAPollDAO (provides DAO methods such as insert_question, insert_p1_fact …)
-    data – pandas.DataFrame of the P1 sheet (already read by the caller)
-    survey_id – AA-MMYYYY identifier
-
-This file contains **no** direct DB calls; it delegates everything via the passed-in `dao` object, so it can
-be unit-tested with a mock.
+"""
+This file parses the P1 sheet of the Excel file and writes the data to the database using the dao object.
 """
 from __future__ import annotations
 
@@ -16,20 +9,14 @@ from typing import List
 
 import pandas as pd
 
-import excel_utils as eu  # renamed helper module
+import excel_utils as eu  
 
 logger = logging.getLogger(__name__)
 
-# ----------------------------------------------------------------------
-# public API
-# ----------------------------------------------------------------------
 
 def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
-    """Parse the normalised P1 sheet and write rows via *dao* DAO methods.
-
-    Returns a list of question_ids that were successfully extracted (useful for stats / validation).
+    """Parses the the excel sheet and returns a list of question_ids.
     """
-
     current_question = None
     current_question_part = None
     current_base = None
@@ -39,14 +26,15 @@ def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
     seen_main_questions: dict[str, int] = {}
     # Track the current max part number for each question number so we can continue counting across tables
     part_counters: dict[str, int] = {}
-    # For every question_number keep a mapping bullet_label -> question_id so
-    # we do not insert the same variant multiple times when the workbook
-    # repeats the bullet header in auxiliary summary tables (e.g. NET rows).
+    # For every question_number keep a part_label: question_id
+    # we do not insert the same variant multiple times 
     seen_variants: dict[str, dict[str, int]] = {}
+    # Track which questions are in variant mode (have summary tables)
+    variant_mode_questions: dict[str, bool] = {}
 
     extracted_questions: List[int] = []
 
-    main_col = 'Return to Index'
+    main_col = 'Return to Index' # name of the column that contains everything; question number, text, base etc
 
     logger.info(f"Column names in Excel: {data.columns.tolist()}")
 
@@ -63,15 +51,40 @@ def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
     # pre-compute list of excel columns that hold counts (helps numeric-row detection)
     demo_excel_cols = [tpl[2] for tpl in demo_mapping.values() if tpl[2] is not None]
 
-    # ------------------------------------------------------------------
+    
     # helpers
-    # ------------------------------------------------------------------
+    # 
     def is_new_block(value):
         return isinstance(value, str) and (value.startswith('Table') or value.startswith('Q'))
 
-    # ------------------------------------------------------------------
-    # main row loop
-    # ------------------------------------------------------------------
+    def is_summary_table(question_text):
+        """Check if this table contains 'summary' indicating it's a summary table to skip."""
+        return 'summary' in question_text.lower()
+
+    def extract_question_number_from_text(text):
+        """Extract question number (e.g., 'Q2') from question text."""
+        q_match = re.search(r'\bQ(\d+)([a-d])?\.?\s', text + ' ')
+        qd_match = re.search(r'\bQD(\d+)\.?\s', text + ' ')
+        
+        if q_match:
+            return f"Q{q_match.group(1)}", False
+        elif qd_match:
+            return f"QD{qd_match.group(1)}", True
+        return None, False
+
+    def check_for_summary_after_question(data, question_row_idx, main_col):
+        """Check if there's a 'Summary' row within the next few rows after a question."""
+        for i in range(question_row_idx + 1, min(question_row_idx + 4, len(data))):
+            try:
+                val = get_cell_value(data.iloc[i].to_dict(), main_col)
+                if isinstance(val, str) and val.strip().lower() == 'summary':
+                    return True
+            except:
+                continue
+        return False
+
+    # main loop
+    # 
     while row_index < len(data):
         row_values = data.iloc[row_index].to_dict()
         main_value = get_cell_value(row_values, main_col)
@@ -84,11 +97,11 @@ def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
             elif main_value.startswith('Base:'):
                 logger.info(f"Found base row: {row_index}: {main_value}")
 
-        # ------- Table header -------------------------------------------------
+        # Table header 
         if isinstance(main_value, str) and 'Table' in main_value:
             current_table = main_value
 
-            # The question is usually the next row
+            # The question is always the next row
             if row_index + 1 >= len(data):
                 row_index += 1
                 continue
@@ -101,50 +114,57 @@ def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
 
             clean_question_text = question_text_raw.strip()
 
-            # Try to extract Q/QD number with more robust regex patterns
-            # Handle cases like "Q1.", "Q15", "QD1", "QD2 Are you...?", etc.
-            q_match = re.search(r'\bQ(\d+)([a-d])?\.?\s', clean_question_text + ' ')
-            qd_match = re.search(r'\bQD(\d+)\.?\s', clean_question_text + ' ')
+            # Try to extract Q/QD number 
+            question_number, is_demographic = extract_question_number_from_text(clean_question_text)
             
-            # If no match found in current text, try lookback concatenation first
-            if not q_match and not qd_match:
-                # concatenate with preceding rows if the current row lacks Q/QD prefix
-                enhanced_text = clean_question_text
-                for lookback in range(1, 10):
-                    if row_index - lookback < 0:
-                        break
-                    prev_text = get_cell_value(data.iloc[row_index - lookback], main_col)
-                    if isinstance(prev_text, str) and (prev_text.startswith('Q') or prev_text.startswith('QD')):
-                        if len(prev_text) < 150:
-                            enhanced_text = prev_text.strip() + " " + clean_question_text
-                            clean_question_text = enhanced_text
-                            # Try regex again on enhanced text
-                            q_match = re.search(r'\bQ(\d+)([a-d])?\.?\s', enhanced_text + ' ')
-                            qd_match = re.search(r'\bQD(\d+)\.?\s', enhanced_text + ' ')
-                            break
-
-            if q_match:
-                question_number = f"Q{q_match.group(1)}"
-                is_demographic = False
-            elif qd_match:
-                question_number = f"QD{qd_match.group(1)}"
-                is_demographic = True
-            else:
+            if not question_number:
                 # Skip this table entirely if we can't identify the question
                 logger.warning(f"Could not identify question number in table '{current_table}' with text: '{clean_question_text[:100]}...'")
                 row_index += 1
                 continue
 
-            # If we've already inserted the stem (part 1) for this question_number in this survey,
-            # we should NOT insert it again – subsequent tables will only add variants.
+            # Check if this is a summary table that should be skipped (for 2024+ surveys with "- Summary")
+            if is_summary_table(clean_question_text):
+                logger.info(f"Found summary table for {question_number}, marking for variant mode")
+                variant_mode_questions[question_number] = True
+                row_index += 1
+                continue
+
+            # For older surveys: Check if there's a "Summary" row after this question
+            has_summary_after = check_for_summary_after_question(data, row_index + 1, main_col)
+            has_summary_table = has_summary_after
+            
+            if not variant_mode_questions.get(question_number, False) and has_summary_after:
+                logger.info(f"Found Summary row after {question_number}, marking for variant mode")
+                variant_mode_questions[question_number] = True
+
+            # Check if we're processing variants for this question
+            is_variant_mode = variant_mode_questions.get(question_number, False)
             is_new_question_number = question_number not in seen_main_questions
 
-            if is_new_question_number:
+            # For summary tables in variant mode: extract stem/base but process data as variants
+            if has_summary_table and is_variant_mode and is_new_question_number:
+                # This is the first summary table - extract the stem question and base
+                logger.info(f"Processing first summary table for {question_number} - extracting stem")
+                process_as_stem = True
+            elif has_summary_table and is_variant_mode and not is_new_question_number:
+                # This is a subsequent summary table - skip it entirely (different base)
+                logger.info(f"Skipping subsequent summary table for {question_number}")
+                row_index += 1
+                continue
+            else:
+                process_as_stem = is_new_question_number
+
+            if process_as_stem:
                 current_question = question_number
                 current_question_part = 1
             else:
                 current_question = question_number
-                current_question_part = part_counters[question_number]
+                # For variants, increment the part counter
+                if is_variant_mode:
+                    current_question_part = part_counters.get(question_number, 1) + 1
+                else:
+                    current_question_part = part_counters[question_number]
 
             # locate Base description (within next 3 rows)
             base_description = None
@@ -155,7 +175,7 @@ def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
                     current_base = base_text
                     break
 
-            if is_new_question_number:
+            if process_as_stem:
                 # Insert the stem only once per survey
                 question_id = dao.insert_question(
                     survey_id,
@@ -169,28 +189,73 @@ def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
 
                 seen_main_questions[question_number] = question_id
                 part_counters[question_number] = 1
+            elif is_variant_mode:
+                # Create a new variant question
+                current_question_part = part_counters.get(question_number, 1) + 1
+                part_counters[question_number] = current_question_part
+                
+                # For variants, look for meaningful text in the next few rows after the Q row
+                variant_text = None
+                search_idx = row_index + 2  # Skip the Q row
+                
+                while search_idx < min(row_index + 8, len(data)):
+                    search_row = data.iloc[search_idx]
+                    search_text = get_cell_value(search_row.to_dict(), main_col)
+                    
+                    if isinstance(search_text, str) and search_text.strip():
+                        search_text = search_text.strip()
+                        # Skip Base rows, Summary rows, and Table rows - look for actual content
+                        if (not search_text.startswith('Base:') and 
+                            not search_text.startswith('Table') and 
+                            search_text.lower() != 'summary' and
+                            len(search_text) > 5):  # Must be meaningful content
+                            variant_text = search_text
+                            break
+                    search_idx += 1
+                
+                # If no specific variant text found, use a generic description
+                if not variant_text:
+                    # Generate a variant name based on the table or position
+                    table_num = current_table.split()[-1] if current_table else "Unknown"
+                    variant_text = f"Variant {table_num}"
+                
+                question_id = dao.insert_question(
+                    survey_id,
+                    question_number,
+                    current_question_part,
+                    variant_text,
+                    is_demographic,
+                    current_base or base_description,
+                )
+                extracted_questions.append(question_id)
+                logger.info(f"Creating variant for {question_number}: {variant_text}")
             else:
-                # Do not reinsert; just reuse existing stem id
+                # Do not reinsert. just reuse existing stem id
                 question_id = seen_main_questions[question_number]
 
-            # ------------- Non-demographic questions → option rows -------------
             if not is_demographic:
                 data_start_idx = row_index + 2  # skip question row + possible base row
                 option_order = 1
 
-                # active_question_id is the question (core or variant) we are currently populating
+                # active_question_id is the question (stem or variant) we are currently populating
                 active_question_id = question_id
 
                 while data_start_idx < len(data):
                     option_row_series = data.iloc[data_start_idx]
                     option_main_val   = get_cell_value(option_row_series.to_dict(), main_col)
 
-                    # When we encounter another Q/Table row -> break out to outer loop
+                    # When we encounter another Q/Table row, break out to outer loop
                     if is_new_block(option_main_val) and option_order > 1:
                         break
 
-                    # Determine if the row is a bullet/variant header
+                    # Skip "Summary" rows entirely when processing data
                     text_val = "" if option_main_val is None else str(option_main_val).strip()
+                    if text_val.lower() == 'summary':
+                        logger.info(f"Skipping Summary row at data processing level")
+                        data_start_idx += 1
+                        continue
+
+                    # Determine if the row is a variant by checking for "-"
                     is_bullet = text_val.startswith('-')
 
                     # Does this row have at least one numeric cell?
@@ -199,11 +264,11 @@ def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
                         for col in demo_excel_cols
                     )
 
-                    # ------------------- handle bullet rows --------------------------------
+                    # handle bullet question rows 
                     if is_bullet:
                         bullet_label = text_val.lstrip('-').strip()
 
-                        # Skip "- Summary" rows entirely (no question, no responses)
+                        # Skip "- Summary" rows entirely 
                         if bullet_label.lower().startswith('summary'):
                             data_start_idx += 1
                             continue  # move to next row without inserting anything
@@ -216,10 +281,10 @@ def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
 
                         if bullet_label in variant_map:
                             active_question_id = variant_map[bullet_label]
-                            # do NOT reset option order – we want new answer
+                            # do not reset option order 
                             # options appended after the existing ones
                         else:
-                            # create new variant question (increment part)
+                            # create new variant question and increment part number
                             current_question_part = part_counters.get(current_question, 1) + 1
                             part_counters[current_question] = current_question_part
 
@@ -238,21 +303,16 @@ def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
                             # reset option ordering for this brand-new variant
                             option_order = 1
 
-                        # proceed to treat *this same row* as numeric row if numbers are present
-
-                    # ------------------------------------------------------------------
-                    # Rows with numeric values → treat as answer options for *active_question_id*
-                    # ------------------------------------------------------------------
+                    # Rows with numeric values are treated as answer options for active_question_id
                     if numeric_found:
-                        # Normalise option text – handle blanks / NaNs
                         if is_bullet:
-                            # bullet rows themselves are not answer options; treat label as "(overall)"
+                            # bullet rows themselves are not answer options. treat label as "(overall)"
                             option_text = "(overall)"
                         else:
-                            # Skip rows that are just whitespace (Excel formatting rows)
+                            # Skip rows that are just whitespace
                             if text_val.lower() in {"", "nan", "none"} or text_val.strip() == "":
                                 data_start_idx += 1
-                                continue  # Skip this row entirely - it's just Excel formatting
+                                continue  
                             else:
                                 option_text = text_val
 
@@ -281,13 +341,11 @@ def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
                         data_start_idx += 1
                         continue  # finished numeric processing for this row
 
-                    # ------------------------------------------------------------------
-                    # Non-numeric & non-bullet rows → skip
-                    # ------------------------------------------------------------------
+                    # Non-numeric & non-bullet rows = skip
                     data_start_idx += 1
                     continue
 
-            # ------------- Demographic questions (QD) --------------------------
+            # Demographic questions (QD) 
             else:
                 demo_id = dao.insert_demographic(question_number, clean_question_text)
 
@@ -322,9 +380,9 @@ def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
 
                 row_index = data_idx - 1
 
-        # ------- QD row outside of Table context --------------------------------
+        # QD row outside of Table context 
         elif isinstance(main_value, str) and main_value.startswith('QD'):
-            # handled similarly to original logic – demographic question row
+            # handled similarly to original logic 
             clean_q = main_value.strip()
             qd_match = re.match(r'^QD(\d+)', clean_q)
             if qd_match:
@@ -369,12 +427,10 @@ def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
 
     return extracted_questions
 
-# ----------------------------------------------------------------------
 # internal helpers
-# ----------------------------------------------------------------------
-
+# 
 def _infer_demo_code(col_name: str) -> str | None:
-    """Rough mapping from column header → QD code."""
+    """Rough mapping from column header to QD code."""
     if col_name in {'Male', 'Female'}:
         return 'QD2'
     if col_name in {'18-24', '25-34', '35-44', '45-54', '55-64', '65+'}:
