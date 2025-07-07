@@ -36,7 +36,7 @@ MONTH_MAP = {
     "Dec": 12,
 }
 
-FILENAME_RE = re.compile(r"AA_([A-Za-z]+)(\d{2})(?:-[A-Za-z0-9_]+)?\.xlsx$")
+FILENAME_RE = re.compile(r"AA_([A-Za-z]+)(\d{2,4})(?:-[A-Za-z0-9_]+)?\.xlsx$")
 
 
 def extract_survey_metadata(filename: str):
@@ -45,7 +45,13 @@ def extract_survey_metadata(filename: str):
         raise ValueError(f"Invalid filename: {filename}")
     month_str, year_str = m.groups()
     month = MONTH_MAP[month_str]
-    year = 2000 + int(year_str)
+    
+    # Handle both 2-digit years (21 = 2021) and 4-digit years (2020 = 2020)
+    if len(year_str) == 2:
+        year = 2000 + int(year_str)
+    else:  # 4-digit year
+        year = int(year_str)
+    
     survey_id = f"AA-{month:02d}{year}"
     return survey_id, month, year
 

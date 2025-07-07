@@ -24,12 +24,14 @@ class VariantDetector:
         return 'summary' in question_text.lower()
     
     def check_for_summary_after_question(self, data: pd.DataFrame, question_row_idx: int, main_col: str) -> bool:
-        """Check if there's a 'Summary' row within the next few rows after a question."""
+        """Check if there's a 'Summary' or 'Summary Table' row within the next few rows after a question."""
         for i in range(question_row_idx + 1, min(question_row_idx + 4, len(data))):
             try:
                 val = self._get_cell_value(data.iloc[i].to_dict(), main_col)
-                if isinstance(val, str) and val.strip().lower() == 'summary':
-                    return True
+                if isinstance(val, str):
+                    val_lower = val.strip().lower()
+                    if val_lower == 'summary' or 'summary table' in val_lower:
+                        return True
             except:
                 continue
         return False
