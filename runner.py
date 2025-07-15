@@ -7,10 +7,10 @@ import sys
 
 import pandas as pd
 
-import excel_utils as eu
-from dao import AAPollDAO
+import pre_processor.excel_utils as eu
+from database.dao import AAPollDAO
 from db_config import DB_CONFIG
-from p1_processor import process_p1_sheet
+from processor.p1_processor import process_p1_sheet
 
 logging.basicConfig(
     level=logging.INFO,
@@ -109,4 +109,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()

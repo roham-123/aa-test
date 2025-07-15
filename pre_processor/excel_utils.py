@@ -1,8 +1,7 @@
 """This file has functions that preprocess the excel files and create a normalised version.
 
-1. Detect demographic column mappings automatically
-2. Provide fallback default mappings
-3. Preprocess Excel files for normalization
+1. Provide default demographic mappings
+2. Preprocess Excel files for normalization
 """
 from __future__ import annotations
 
@@ -12,53 +11,6 @@ from typing import Dict, Tuple
 import pandas as pd
 
 logger = logging.getLogger(__name__)
-
-# Column mapping detection
-COMMON_DEMOS = {
-    "total": ("total_count", "total_percent"),
-    "male": ("male_count", "male_percent"),
-    "female": ("female_count", "female_percent"),
-    "18-24": ("age_18_24_count", "age_18_24_percent"),
-    "25-34": ("age_25_34_count", "age_25_34_percent"),
-    "35-44": ("age_35_44_count", "age_35_44_percent"),
-    "45-54": ("age_45_54_count", "age_45_54_percent"),
-    "55-64": ("age_55_64_count", "age_55_64_percent"),
-    "65+": ("age_65_plus_count", "age_65_plus_percent"),
-}
-
-
-def detect_column_mapping(df: pd.DataFrame, max_scan_rows: int = 20) -> Dict[str, Tuple[str, str, str]]:
-    """
-    Returns a dict such as:
-        {'Total': ('total_count', 'total_percent', '<dataframe_column_name>'), ...}
-    If detection fails we return an empty dict and fall back to the default mapping.
-    """
-    header_row_idx = None
-    for i in range(min(max_scan_rows, len(df))):
-        row_texts = [str(x).strip().lower() for x in df.iloc[i].values if pd.notna(x)]
-        if "total" in row_texts:
-            header_row_idx = i
-            break
-
-    if header_row_idx is None:
-        logger.warning("Could not automatically detect demographic header row – falling back to defaults")
-        return {}
-
-    demo_mapping: Dict[str, Tuple[str, str, str]] = {}
-    header_row = df.iloc[header_row_idx]
-    for col in df.columns:
-        val = header_row[col]
-        if pd.isna(val):
-            continue
-        key = str(val).strip()
-        lowered = key.lower()
-
-        if lowered in COMMON_DEMOS:
-            count_col_name, percent_col_name = COMMON_DEMOS[lowered]
-            demo_mapping[key] = (count_col_name, percent_col_name, col)
-
-    logger.info(f"Automatically detected demo column mapping with {len(demo_mapping)} columns")
-    return demo_mapping
 
 
 def default_column_mapping() -> Dict[str, Tuple[str, str, str]]:
@@ -107,9 +59,7 @@ def _normalise_column_headers(df: pd.DataFrame) -> pd.DataFrame:
 
 def _remove_empty_rows_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Remove completely empty rows and columns."""
-    df = df.dropna(how="all")
-    df = df.dropna(axis=1, how="all")
-    return df
+    return df.dropna(axis=0, how='all').dropna(axis=1, how='all')
 
 
 def preprocess_excel(filepath: str) -> str:

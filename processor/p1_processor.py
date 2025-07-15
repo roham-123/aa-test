@@ -1,6 +1,5 @@
 """
 This file parses the P1 sheet of the Excel file and writes the data to the database using the dao object.
-Refactored to use separate modules for different responsibilities.
 """
 from __future__ import annotations
 
@@ -10,10 +9,10 @@ from typing import List
 
 import pandas as pd
 
-import excel_utils as eu
-from variant_detector import VariantDetector
-from question_extractor import QuestionExtractor
-from answer_processor import AnswerProcessor
+import pre_processor.excel_utils as eu
+from .variant_detector import VariantDetector
+from .question_extractor import QuestionExtractor
+from .answer_processor import AnswerProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +37,8 @@ def process_p1_sheet(dao, data: pd.DataFrame, survey_id: str) -> List[int]:
 
     logger.info(f"Column names in Excel: {data.columns.tolist()}")
 
-    demo_mapping = eu.detect_column_mapping(data)
-    if not demo_mapping:
-        demo_mapping = eu.default_column_mapping()
+    # Always use default column mapping
+    demo_mapping = eu.default_column_mapping()
 
     current_table = None
     row_index = 0
