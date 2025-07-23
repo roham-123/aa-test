@@ -16,7 +16,7 @@ CREATE TABLE questions (
   question_part INT DEFAULT 1,
   question_text TEXT NOT NULL,
   is_demographic BOOLEAN DEFAULT FALSE,
-  base_description VARCHAR(255),
+  base_description VARCHAR(255) DEFAULT NULL,
   FOREIGN KEY (survey_id) REFERENCES surveys(survey_id)
 );
 
@@ -34,9 +34,9 @@ CREATE TABLE IF NOT EXISTS demographic_responses (
     question_id INT NOT NULL,
     survey_id VARCHAR(64) NOT NULL,
     demo_id INT NOT NULL,
-    item_label VARCHAR(255),
-    count INT,
-    percent DECIMAL(5,2),
+    item_label VARCHAR(255) DEFAULT NULL,
+    count INT DEFAULT NULL,
+    percent DECIMAL(5,2) DEFAULT NULL,
     FOREIGN KEY (question_id) REFERENCES questions(question_id),
     FOREIGN KEY (survey_id) REFERENCES surveys(survey_id),
     FOREIGN KEY (demo_id) REFERENCES demographics(demo_id)
