@@ -44,11 +44,11 @@ class AAPollDAO:
     # processed-files helper
     # ------------------------------------------------------------------
     def is_file_processed(self, filename: str) -> bool:
-        self.cursor.execute("SELECT filename FROM processed_files WHERE filename=%s", (filename,))
+        self.cursor.execute("SELECT filename FROM surveys WHERE filename=%s AND processed=TRUE", (filename,))
         return self.cursor.fetchone() is not None
 
     def mark_file_processed(self, filename: str):
-        self.cursor.execute("INSERT INTO processed_files (filename) VALUES (%s)", (filename,))
+        self.cursor.execute("UPDATE surveys SET processed=TRUE WHERE filename=%s", (filename,))
         self.conn.commit()
 
     # ------------------------------------------------------------------

@@ -1,15 +1,12 @@
 CREATE DATABASE IF NOT EXISTS aa_poll_demo;
 USE aa_poll_demo;
 
-CREATE TABLE processed_files (
-  filename VARCHAR(255) PRIMARY KEY
-);
-
 CREATE TABLE surveys (
   survey_id VARCHAR(20) PRIMARY KEY,
   year INT NOT NULL,
   month INT NOT NULL,
-  filename VARCHAR(255) NOT NULL
+  filename VARCHAR(255) NOT NULL,
+  processed BOOLEAN DEFAULT FALSE
 );
 
 CREATE TABLE questions (
