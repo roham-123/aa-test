@@ -9,7 +9,7 @@ CREATE TABLE surveys (
   processed BOOLEAN DEFAULT FALSE
 );
 
-CREATE TABLE questions (
+CREATE TABLE survey_questions (
   question_id INT AUTO_INCREMENT PRIMARY KEY,
   survey_id VARCHAR(20) NOT NULL,
   question_number VARCHAR(10) NOT NULL,
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS demographic_responses (
     item_label VARCHAR(255) DEFAULT NULL,
     count INT DEFAULT NULL,
     percent DECIMAL(5,2) DEFAULT NULL,
-    FOREIGN KEY (question_id) REFERENCES questions(question_id),
+    FOREIGN KEY (question_id) REFERENCES survey_questions(question_id),
     FOREIGN KEY (survey_id) REFERENCES surveys(survey_id),
     FOREIGN KEY (demo_id) REFERENCES demographics(demo_id)
 );
@@ -48,8 +48,7 @@ CREATE TABLE IF NOT EXISTS answer_options (
     question_id INT NOT NULL,
     option_text VARCHAR(255) NOT NULL,
     option_order INT DEFAULT NULL,
-    UNIQUE KEY uq_question_option (question_id, option_text),
-    CONSTRAINT fk_option_question FOREIGN KEY (question_id) REFERENCES questions(question_id)
+    CONSTRAINT fk_option_question FOREIGN KEY (question_id) REFERENCES survey_questions(question_id)
 );
 
 -- Response counts of all demographics
@@ -59,10 +58,10 @@ CREATE TABLE IF NOT EXISTS p1_responses (
     survey_id VARCHAR(20) NOT NULL,
     option_id INT NOT NULL,
     demo_id INT DEFAULT NULL,
-    item_label VARCHAR(80) DEFAULT NULL,
+    item_label VARCHAR(80) DEFAULT NULL,  
     cnt INT DEFAULT NULL,
     pct DECIMAL(6,2) DEFAULT NULL,
-    CONSTRAINT fk_p1_question FOREIGN KEY (question_id) REFERENCES questions(question_id),
+    CONSTRAINT fk_p1_question FOREIGN KEY (question_id) REFERENCES survey_questions(question_id),
     CONSTRAINT fk_p1_survey   FOREIGN KEY (survey_id)  REFERENCES surveys(survey_id),
     CONSTRAINT fk_p1_option   FOREIGN KEY (option_id)  REFERENCES answer_options(option_id),
     CONSTRAINT fk_p1_demo     FOREIGN KEY (demo_id)    REFERENCES demographics(demo_id)
