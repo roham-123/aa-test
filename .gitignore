@@ -5,4 +5,4 @@ __pycache__/
 *.log
 etl_log.log
 /excel_files/
-db_config.py
+db_config.py.env

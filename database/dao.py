@@ -75,7 +75,7 @@ class AAPollDAO:
     ) -> int:
         self.cursor.execute(
             """
-            INSERT INTO questions (survey_id, question_number, question_part, question_text, is_demographic, base_description)
+INSERT INTO survey_questions (survey_id, question_number, question_part, question_text, is_demographic, base_description)
             VALUES (%s, %s, %s, %s, %s, %s)
             """,
             (

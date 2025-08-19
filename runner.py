@@ -7,6 +7,10 @@ import sys
 
 import pandas as pd
 
+# Set pandas options to handle long text properly for logging/debugging
+pd.set_option('display.max_colwidth', None)  # No limit on column width for complete text display
+pd.set_option('display.width', None)         # No limit on display width
+
 import pre_processor.excel_utils as eu
 from database.dao import AAPollDAO
 from db_config import DB_CONFIG
@@ -22,6 +26,7 @@ logger = logging.getLogger("runner")
 # helpers
 # 
 MONTH_MAP = {
+    # Short month names (existing format)
     "Jan": 1,
     "Feb": 2,
     "Mar": 3,
@@ -34,6 +39,19 @@ MONTH_MAP = {
     "Oct": 10,
     "Nov": 11,
     "Dec": 12,
+    # Full month names (new format support)
+    "January": 1,
+    "February": 2,
+    "March": 3,
+    "April": 4,
+    "May": 5,
+    "June": 6,
+    "July": 7,
+    "August": 8,
+    "September": 9,
+    "October": 10,
+    "November": 11,
+    "December": 12,
 }
 
 FILENAME_RE = re.compile(r"AA_([A-Za-z]+)(\d{2,4})(?:-[A-Za-z0-9_]+)?\.xlsx$")

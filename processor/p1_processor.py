@@ -100,13 +100,49 @@ def _process_table_block(data: pd.DataFrame, row_index: int, table_header: str, 
     if row_index + 1 >= len(data):
         return row_index + 1
 
-    question_row = data.iloc[row_index + 1]
-    question_text_raw = question_row.get(main_col) if pd.notna(question_row.get(main_col)) else None
+    # Extract complete question text spanning multiple rows
+    question_text_parts = []
+    current_row_idx = row_index + 1
     
-    if not isinstance(question_text_raw, str):
+    # Read rows until we hit a stopping condition
+    while current_row_idx < len(data):
+        row = data.iloc[current_row_idx]
+        cell_value = row.get(main_col) if pd.notna(row.get(main_col)) else None
+        
+        if not isinstance(cell_value, str):
+            current_row_idx += 1
+            continue
+            
+        cell_text = cell_value.strip()
+        
+        # Stop conditions:
+        # 1. Base: line
+        # 2. New Table/Question line  
+        # 3. Variant/bullet line (starts with -)
+        # 4. Empty line or non-meaningful content
+        if (cell_text.startswith('Base:') or 
+            cell_text.startswith('Table') or 
+            cell_text.startswith('Q') and current_row_idx > row_index + 1 or
+            cell_text.startswith('-') or
+            len(cell_text) < 3):
+            break
+            
+        question_text_parts.append(cell_text)
+        current_row_idx += 1
+        
+        # Safety check to avoid infinite loops
+        if len(question_text_parts) > 10:
+            logger.warning(f"Question text extraction exceeded 10 rows at table '{table_header}', stopping")
+            break
+    
+    if not question_text_parts:
+        logger.warning(f"No question text found after table '{table_header}'")
         return row_index + 1
-
-    clean_question_text = question_text_raw.strip()
+    
+    # Join all parts with spaces to form complete question text
+    clean_question_text = ' '.join(question_text_parts).strip()
+    
+    logger.info(f"Extracted multi-row question text ({len(question_text_parts)} rows): {clean_question_text[:100]}...")
 
     # Extract question number
     question_number, is_demographic = question_extractor.extract_question_number_from_text(clean_question_text)
