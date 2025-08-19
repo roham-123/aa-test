@@ -6,3 +6,6 @@ __pycache__/
 etl_log.log
 /excel_files/
 db_config.py.env
+.env
+.env.local
+.env.*.local
