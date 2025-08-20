@@ -10,7 +10,7 @@ from datetime import datetime
 import traceback
 
 # Import the chatbot class
-from survey_chatbot import SurveyChatbot
+from azure_openai.survey_chatbot import SurveyChatbot
 
 # Page configuration
 st.set_page_config(
@@ -20,7 +20,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Custom CSS to make it look like ChatGPT
+# Custom CSS to make it look like modern LLMs
 st.markdown("""
 <style>
     /* Hide Streamlit branding */
@@ -110,7 +110,6 @@ def initialize_chatbot():
             return False
     return True
 
-# Removed display functions - now using direct chat message display in main interface
 
 def clear_conversation():
     """Clear the conversation history."""
@@ -160,8 +159,7 @@ def show_controls_menu():
                 st.button("⚠️ Error", disabled=True, use_container_width=True, type="secondary")
 
 def main_chat_interface():
-    """Main chat interface styled like ChatGPT."""
-    # ChatGPT-style header
+    """Main chat interface"""
     st.title("Survey Data Assistant")
     st.markdown('<div class="title-subtitle">Ask me anything about the survey data</div>', unsafe_allow_html=True)
     
@@ -182,7 +180,6 @@ def main_chat_interface():
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
     else:
-        # Welcome message in ChatGPT style
         st.markdown("""
         <div style='text-align: center; padding: 2rem; color: #6b7280;'>
             <h3>How can I help you today?</h3>
@@ -190,7 +187,7 @@ def main_chat_interface():
         </div>
         """, unsafe_allow_html=True)
     
-    # Chat input at the bottom - styled like ChatGPT
+    # Chat input at the bottom 
     user_input = st.chat_input("Message Survey Assistant...", key="chat_input")
     
     if user_input:
@@ -245,7 +242,6 @@ def main():
     # Initialize session state
     initialize_session_state()
     
-    # Create ChatGPT-style layout (no sidebar)
     main_chat_interface()
 
 if __name__ == "__main__":

@@ -434,7 +434,7 @@ class SurveyChatbot:
             
         except Exception as e:
             logger.error(f"Error in chat processing: {e}")
-            return f"❌ I encountered an error while analyzing your question. Please try rephrasing it or asking something different."
+            return f"I encountered an error while analyzing your question. Please try rephrasing it or asking something different."
 
 
  
