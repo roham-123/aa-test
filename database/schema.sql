@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS answer_options (
     question_id INT NOT NULL,
     option_text VARCHAR(255) NOT NULL,
     option_order INT DEFAULT NULL,
+    UNIQUE KEY uq_question_option (question_id, option_text),
     CONSTRAINT fk_option_question FOREIGN KEY (question_id) REFERENCES survey_questions(question_id)
 );
 
