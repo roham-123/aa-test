@@ -4,7 +4,10 @@
 
 This system processes AA survey data from Excel files and provides intelligent AI-powered analysis through a natural language chatbot interface. The architecture follows clean separation of concerns with distinct ETL, database, and analysis layers.
 
-![Flow Diagram](img/Pre-pocessor.png)
+<!-- ![Flow Diagram](img/Pre-pocessor.png) -->
+<p align="center">
+  <img src="img/Pre-pocessor.png" alt="Flow Diagram" width="400"/>
+</p>
 
 ### Core Components
 
